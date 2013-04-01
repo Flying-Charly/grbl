@@ -492,13 +492,18 @@ SIGNAL(TWI_vect)
     // Master Transmitter
     case TW_MT_SLA_ACK:  // slave receiver acked address
       if(twi_state==TWI_MTRX || twi_state==TWI_M_RMW) {
-        TWDR = twi_reg;
+        TWDR = twi_reg; // multibyte: TWDR = *twi_reg_ptr++;
         twi_reply(1); // ack
         break;
       }
       // else fall thru...
     case TW_MT_DATA_ACK: // slave receiver acked data
       if(twi_state==TWI_MTRX || twi_state==TWI_M_RMW) {
+        // multibyte: if(--reg_addr_bytes_remain) {
+        //   TWDR = *twi_reg_ptr++;
+        //   twi_reply(1);
+        //   break;
+        // }        
         // sent register addr; switch to RX mode and issue repeated start
         // timing problem with repeated start? send stop/start
         // send stop condition
