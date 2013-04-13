@@ -25,7 +25,7 @@
   uint8_t i2caddr;
   extern uint8_t GPIO_read_buf[2];
 
-#define MCP23017_ADDRESS 0x20
+#define MCP23017_UNIT0 0x20
 
 #define INPUT 1
 #define DO_WAIT 1

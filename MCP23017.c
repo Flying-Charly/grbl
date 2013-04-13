@@ -14,7 +14,7 @@
   > BSD license, all text above must be included in any redistribution
  ****************************************************/
 
-#include "twi.h"
+#include "i2c_tcb.h"
 #include <avr/pgmspace.h>
 #include "MCP23017.h"
 #include "config.h"
@@ -24,31 +24,49 @@
 ////////////////////////////////////////////////////////////////////////////////
 void init_MCP23017_interrupt(); // forward declaration
 
-void MCP23017_begin(uint8_t addr) {
-  i2caddr = MCP23017_ADDRESS | (addr&7);
+
+// TCB definition for startup operations (write 1 byte)
+uint8_t init_tcb[4];
+
+void MCP23017_begin(uint8_t i2caddr) {
   twi_init();
   twi_releaseBus();
+  // TBD: replace this with tcb operations
   // set defaults
   // All  pins input at startup (some B pins will become outputs later, e.g for spindle control)
-  static uint8_t localbuf[3];
-  localbuf[0]=MCP23017_IODIRA; localbuf[1]=0xFF; localbuf[2]=0xFF;
-  twi_writeTo(i2caddr, localbuf, 3, DO_WAIT);
+  init_tcb[0] = TCB_WRT | (1<<TCB_REG_SHIFT) | TCB_INPLACE, //flags
+  init_tcb[1] = i2caddr;
+  init_tcb[2] = MCP23017_IODIRA;
+  init_tcb[3] = 0xFF;
+  queue_TWI((struct tcb*)init_tcb);
+  while(init_tcb[0]&TCB_COMPL) { }; // block until transaction complete
+  init_tcb[2] = MCP23017_IODIRB;
+  init_tcb[3] = 0xFF;
+  queue_TWI((struct tcb*)init_tcb);
+  while(init_tcb[0]&TCB_COMPL) { }; // block until transaction complete
+  
   #ifdef USE_I2C_LIMITS
   // set up IOCON.SEQOP=0, BANK=0 
   //  also INT output is active low, active driver.
-  localbuf[0]=MCP23017_IOCONA; localbuf[1]=0x00; // IOCON.SEQOP=1: 0x20; 
-  twi_writeTo(i2caddr, localbuf, 2, DO_WAIT);
+  init_tcb[2] = MCP23017_IOCONA;
+  init_tcb[3] = 0x00; // obsolete, IOCON.SEQOP=1: 0x20; 
+  queue_TWI((struct tcb*)init_tcb);
+  while(init_tcb[0]&TCB_COMPL) { }; // block until transaction complete
   // set up INTCONA for interrupt on change (same as power-on default)
-  localbuf[0]=MCP23017_INTCONA; localbuf[1]=0x00; 
-  twi_writeTo(i2caddr, localbuf, 2, DO_WAIT);
+  init_tcb[2] = MCP23017_INTCONA;
+  init_tcb[3] = 0x00;
+  queue_TWI((struct tcb*)init_tcb);
+  while(init_tcb[0]&TCB_COMPL) { }; // block until transaction complete
   // set up GPINTENA to enable interrupt on all pins
-  localbuf[0]=MCP23017_GPINTENA; localbuf[1]=0xFF; 
-  twi_writeTo(i2caddr, localbuf, 2, DO_WAIT);
+  init_tcb[2] = MCP23017_GPINTENA;
+  init_tcb[3] = 0xFF;
+  queue_TWI((struct tcb*)init_tcb);
+  while(init_tcb[0]&TCB_COMPL) { }; // block until transaction complete
   init_MCP23017_interrupt();
   #endif
 }
 
-
+/***
 
 void MCP23017_pinMode(uint8_t p, uint8_t d) {
   uint8_t localbuf[2];
@@ -123,17 +141,13 @@ void MCP23017_digitalWrite(uint8_t p, uint8_t d) {
   // write the new GPIO
   status = twi_writeTo(i2caddr, localbuf, 2, DO_WAIT);
 }
+***/
+
 
 #ifdef MCP23017_INT_PIN // if defined, it is 0 or 1
 // Use MCP23017's interrupt output to trigger a GPIO read operation
 // Using AVR's dedicated interrupts INT0/INT1 (not pin-change interrupt)
-uint8_t GPIO_read_buf[2];
-twi_transaction_read GPIOread_trans;
 void init_MCP23017_interrupt() {
-  GPIOread_trans.address = i2caddr;
-  GPIOread_trans.reg = MCP23017_GPIOA;
-  GPIOread_trans.length = 1;
-  GPIOread_trans.data = GPIO_read_buf;
   // set INTx falling edge sensitive
   // TBD: may need to be level sensitive in case we get out of sync with MCP23017
   EICRA = (EICRA & ~( 3 << (2*MCP23017_INT_PIN) )) | ( 2 << (2*MCP23017_INT_PIN) );
@@ -142,7 +156,7 @@ void init_MCP23017_interrupt() {
 ISR(MCP23017_INT_vect) 
 {
   // schedule a read operation at priority 0
-  twi_queue_read_transaction(&GPIOread_trans, 0);
+  queue_quickread(0);
 }
 #else
 void init_MCP23017_interrupt() { }

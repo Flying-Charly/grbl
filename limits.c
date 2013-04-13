@@ -35,7 +35,7 @@
 #include "report.h"
 #ifdef USE_I2C_LIMITS
 #include "MCP23017.h"
-#include "twi.h"
+#include "i2c_tcb.h"
 #endif
 
 #include "print.h"
@@ -132,9 +132,8 @@ home_params[Z_AXIS].decel = home_params[Z_AXIS].rate[0]*60./0.1; // mm/min^2; 0.
 }
 
 #ifdef USE_I2C_LIMITS
-twi_transaction_read trans;
 inline uint8_t home_limit_state() {
-  return (volatile uint8_t)GPIO_read_buf[0]; // updated in background by MCP23017_interrupt
+  return (volatile uint8_t)quickread_data(0); // updated in background by MCP23017_interrupt
 }
 #else
 inline uint8_t home_limit_state() {
@@ -190,11 +189,7 @@ bool indep_increment(indep_t_ptr ht)
 static void run_independent_move(indep_t_ptr frame) { 
   #ifdef USE_I2C_LIMITS
   // capture current home/limit state (needed at cold start)
-  trans.address = i2caddr;
-  trans.reg = MCP23017_GPIOA;
-  trans.length = 1;
-  trans.data = GPIO_read_buf;
-  twi_queue_read_transaction(&trans, 1);
+  queue_quickread(0);
   delay_ms(2); // a generous wait for I2C operation to complete
   #endif
   for(;;) {

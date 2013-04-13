@@ -64,7 +64,7 @@ int main(void)
     if (sys.abort) {
       // Reset system.
       #ifdef MCP23017_PRESENT
-      MCP23017_begin(0);
+      MCP23017_begin(MCP23017_UNIT0);
       #endif
       serial_reset_read_buffer(); // Clear serial read buffer
       plan_init(); // Clear block buffer and planner variables

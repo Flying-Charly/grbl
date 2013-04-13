@@ -24,10 +24,11 @@
 #include "planner.h"
 
 #ifdef SPINDLE_ON_I2C
-#include "twi.h"
+#include "i2c_tcb.h"
 #include "MCP23017.h"
 
-twi_transaction_write_one_masked trans;
+uint8_t spindle_tcb[5];
+
 
 #endif
 
@@ -38,15 +39,16 @@ void spindle_init()
   current_direction = 0;
 #ifdef SPINDLE_PRESENT
 #ifdef SPINDLE_ON_I2C
-  trans.address = i2caddr;
-  //set output direction in MCP23017
-  trans.reg = MCP23017_IODIRB;
-  trans.data = 0 ;
-  trans.mask = (1 << SPINDLE_ENABLE_BIT) | (1 << SPINDLE_DIRECTION_BIT) ;
-  twi_queue_write_one_masked_transaction(&trans, 1);
-  // prepare for data
-  delay_ms(2); // TBD: wait for transaction completion status
-  trans.reg = MCP23017_OLATB;
+  // fill spindle tcb to set output port bit directions
+  spindle_tcb[0] = TCB_WRT_MASKED | (1<<TCB_REG_SHIFT) | TCB_INPLACE; //flags
+  spindle_tcb[1] = MCP23017_UNIT0; // device address
+  spindle_tcb[2] = MCP23017_IODIRB; // register
+  spindle_tcb[3] = 0x00; // data bit values (clear)
+  spindle_tcb[4] = (1 << SPINDLE_ENABLE_BIT) | (1 << SPINDLE_DIRECTION_BIT); // data mask
+  queue_TWI((struct tcb*)spindle_tcb);
+  while(spindle_tcb[0]&TCB_COMPL) { }; // block until transaction complete
+  // all future transactions will be to the output latch register
+  spindle_tcb[2] = MCP23017_OLATB; // register
 #else  
   SPINDLE_ENABLE_DDR |= (1<<SPINDLE_ENABLE_BIT);
   SPINDLE_DIRECTION_DDR |= (1<<SPINDLE_DIRECTION_BIT); 
@@ -59,10 +61,10 @@ void spindle_stop()
 {
 #ifdef SPINDLE_PRESENT
 #ifdef SPINDLE_ON_I2C
-  trans.data = 0;
-  trans.mask = 1 << SPINDLE_ENABLE_BIT;
-  trans.reg = MCP23017_OLATB;
-  twi_queue_write_one_masked_transaction(&trans, 1);
+  while(spindle_tcb[0]&TCB_COMPL) { }; // block if a spindle I2C transaction is pending
+  spindle_tcb[3] = 0x00; // data bit values (clear)
+  spindle_tcb[4] = (1 << SPINDLE_ENABLE_BIT); // data mask
+  queue_TWI((struct tcb*)spindle_tcb);
 #else
   SPINDLE_ENABLE_PORT &= ~(1<<SPINDLE_ENABLE_BIT);
 #endif
@@ -77,16 +79,15 @@ void spindle_run(int8_t direction) //, uint16_t rpm)
     plan_synchronize();
     
 #ifdef SPINDLE_ON_I2C
+    while(spindle_tcb[0]&TCB_COMPL) { }; // block if a spindle I2C transaction is pending
     if(direction) {
       if (direction < 0) {
-        trans.data = (1 << SPINDLE_ENABLE_BIT) | (1 << SPINDLE_DIRECTION_BIT) ;
+        spindle_tcb[3] = (1 << SPINDLE_ENABLE_BIT) | (1 << SPINDLE_DIRECTION_BIT) ;
       } else {
-        trans.data = (1 << SPINDLE_ENABLE_BIT);
+        spindle_tcb[3] = (1 << SPINDLE_ENABLE_BIT);
       }
-      trans.mask = (1 << SPINDLE_ENABLE_BIT) | (1 << SPINDLE_DIRECTION_BIT) ;
-      trans.reg = MCP23017_OLATB;
-      twi_queue_write_one_masked_transaction(&trans, 1);
-      
+      spindle_tcb[4] = (1 << SPINDLE_ENABLE_BIT) | (1 << SPINDLE_DIRECTION_BIT) ;
+      queue_TWI((struct tcb*)spindle_tcb);
 #else
     if(direction) {
       if(direction > 0) {
