@@ -133,7 +133,8 @@ home_params[Z_AXIS].decel = home_params[Z_AXIS].rate[0]*60./0.1; // mm/min^2; 0.
 
 #ifdef USE_I2C_LIMITS
 inline uint8_t home_limit_state() {
-  return (volatile uint8_t)quickread_data(0); // updated in background by MCP23017_interrupt
+  return QUICKREAD_DATA(0);
+  //return quickread_data(0); // updated in background by MCP23017_interrupt
 }
 #else
 inline uint8_t home_limit_state() {
@@ -189,7 +190,7 @@ bool indep_increment(indep_t_ptr ht)
 static void run_independent_move(indep_t_ptr frame) { 
   #ifdef USE_I2C_LIMITS
   // capture current home/limit state (needed at cold start)
-  queue_quickread(0);
+  QUEUE_QUICKREAD(0);
   delay_ms(2); // a generous wait for I2C operation to complete
   #endif
   for(;;) {

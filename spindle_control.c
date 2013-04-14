@@ -32,6 +32,9 @@ uint8_t spindle_tcb[5];
 
 #endif
 
+// this hack is supposed to help avr-gcc do 8-bit instead of 16-bit ops
+static inline uint8_t only8 (uint8_t x) { return x; }
+
 static uint8_t current_direction;
 
 void spindle_init()
@@ -46,7 +49,7 @@ void spindle_init()
   spindle_tcb[3] = 0x00; // data bit values (clear)
   spindle_tcb[4] = (1 << SPINDLE_ENABLE_BIT) | (1 << SPINDLE_DIRECTION_BIT); // data mask
   queue_TWI((struct tcb*)spindle_tcb);
-  while(spindle_tcb[0]&TCB_COMPL) { }; // block until transaction complete
+  while(only8(spindle_tcb[0]&TCB_COMPL)) { }; // block until transaction complete
   // all future transactions will be to the output latch register
   spindle_tcb[2] = MCP23017_OLATB; // register
 #else  
@@ -61,7 +64,7 @@ void spindle_stop()
 {
 #ifdef SPINDLE_PRESENT
 #ifdef SPINDLE_ON_I2C
-  while(spindle_tcb[0]&TCB_COMPL) { }; // block if a spindle I2C transaction is pending
+  while(only8(spindle_tcb[0]&TCB_COMPL)) { }; // block if a spindle I2C transaction is pending
   spindle_tcb[3] = 0x00; // data bit values (clear)
   spindle_tcb[4] = (1 << SPINDLE_ENABLE_BIT); // data mask
   queue_TWI((struct tcb*)spindle_tcb);
@@ -79,7 +82,7 @@ void spindle_run(int8_t direction) //, uint16_t rpm)
     plan_synchronize();
     
 #ifdef SPINDLE_ON_I2C
-    while(spindle_tcb[0]&TCB_COMPL) { }; // block if a spindle I2C transaction is pending
+    while(only8(spindle_tcb[0]&TCB_COMPL)) { }; // block if a spindle I2C transaction is pending
     if(direction) {
       if (direction < 0) {
         spindle_tcb[3] = (1 << SPINDLE_ENABLE_BIT) | (1 << SPINDLE_DIRECTION_BIT) ;

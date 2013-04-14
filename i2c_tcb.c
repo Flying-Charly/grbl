@@ -23,6 +23,9 @@
 #include "MCP23017.h"
 #endif
 
+// this hack is supposed to help avr-gcc do 8-bit instead of 16-bit ops
+static inline uint8_t only8 (uint8_t x) { return x; }
+
 volatile uint8_t twi_state;
 uint8_t twi_slarw;
 
@@ -59,7 +62,7 @@ int8_t twi_writeGeneric(uint8_t dev_addr, uint8_t* reg_addr_spec, uint8_t* data,
 
 
 //#define WELL_KNOWN_TRANSACTIONS
-// (supported if compile option set) well known transaction is defined by a byte array
+//(supported if compile option set) well known transaction is defined by a byte array:
 //  uint8_t flags; // the predefined flag bits 7..3 applying to this transaction
 //  uint8_t sequence_bits; // selects local vs tcb source of data for transaction execution
 //     e.g. 0b10000000 would take device_addr from local table, rest from tcb
@@ -69,25 +72,10 @@ int8_t twi_writeGeneric(uint8_t dev_addr, uint8_t* reg_addr_spec, uint8_t* data,
 //  [...]
 
 
-// A quickread transaction is a one-byte I2C read intended to update a mirror register
-// To queue a quickread, increment its 'pending' field
-struct quickread {
-  uint8_t pending;
-  uint8_t data; // mirror register
-  const uint8_t device; // I2C device address, 7-bit convention
-  uint8_t reg_spec[2];
-};
 struct quickread quickreads[] = {
  {0, 0, MCP23017_UNIT0, {1, MCP23017_GPIOA}}
 };
 #define QR_END (struct quickread*)((uint8_t*)quickreads + sizeof(quickreads))
-
-inline void queue_quickread(uint8_t i) {
-  quickreads[i].pending++;
-}
-inline uint8_t quickread_data(uint8_t i) {
-  return quickreads[i].data;
-}
 
 // All non-quickread transactions share a single round-robin fifo
 uint8_t twi_fifo_write_pointer;
@@ -170,14 +158,14 @@ uint8_t reg_addr_spec[3]; // addr width(0..2), MSB, LSB
 void start_transaction(struct tcb* tran) {
   if (tran==NULL) { return; }
   uint8_t flags = tran->flags;
-  if ((flags&TCB_COMPL)==TCB_IDLE) { return; } // cancelled
+  if (only8(flags&TCB_COMPL)==TCB_IDLE) { return; } // cancelled
   #ifdef WELL_KNOWN_TRANSACTIONS
   tcb_feeder.sequence_map = 0;
   tcb_feeder.sequence_pointer = 0x80;
   tcb_feeder.tcb_byte = (uint8_t*)(tran + 1); // start of tcb variant section
-  if ((flags & TCB_RWW)==TCB_WK) {  //read/write/wellknown flags
+  if (only8(flags & TCB_RWW)==TCB_WK) {  //read/write/wellknown flags
     // well known transaction
-    tcb_feeder.presets_byte = wellknown_table[(flags & TCB_WKID)>>TCB_WK_SHIFT];
+    tcb_feeder.presets_byte = wellknown_table[only8(flags & TCB_WKID)>>TCB_WK_SHIFT];
     flags = *tcb_feeder.presets_byte++;
     tcb_feeder.sequence_map = *tcb_feeder.presets_byte++;
   }
@@ -187,7 +175,7 @@ void start_transaction(struct tcb* tran) {
   // get device and register addresses
   uint8_t dev_addr = *next_tcb_byte();
   uint8_t ct; // counter for register address bytes
-  reg_addr_spec[0] = ct = (flags&TCB_REG)>>TCB_REG_SHIFT; // number of register address bytes
+  reg_addr_spec[0] = ct = only8(flags&TCB_REG)>>TCB_REG_SHIFT; // number of register address bytes
   while(ct--) {
     reg_addr_spec[ct] = *next_tcb_byte();
   }
@@ -205,10 +193,10 @@ void start_transaction(struct tcb* tran) {
     data = (uint8_t*)data_t;
   }
   // start the transaction
-  if((flags&TCB_RWW)==TCB_READ) { // read
+  if(only8(flags&TCB_RWW)==TCB_READ) { // read
     twi_readGeneric(dev_addr, reg_addr_spec, data, length);
   } else { // write
-    if ((flags&TCB_RWW)==TCB_WRT_MASKED) { // write masked
+    if (only8(flags&TCB_RWW)==TCB_WRT_MASKED) { // write masked
       length = -length;
     }
     twi_writeGeneric(dev_addr, reg_addr_spec, data, length);

@@ -25,10 +25,9 @@
 void init_MCP23017_interrupt(); // forward declaration
 
 
-// TCB definition for startup operations (write 1 byte)
-uint8_t init_tcb[4];
 
 void MCP23017_begin(uint8_t i2caddr) {
+  uint8_t init_tcb[4];   // TCB defn for startup operations (write 1 byte)
   twi_init();
   twi_releaseBus();
   // TBD: replace this with tcb operations
@@ -155,8 +154,8 @@ void init_MCP23017_interrupt() {
 }  
 ISR(MCP23017_INT_vect) 
 {
-  // schedule a read operation at priority 0
-  queue_quickread(0);
+  // schedule the predefined read operation at priority 0
+  QUEUE_QUICKREAD(0);
 }
 #else
 void init_MCP23017_interrupt() { }
