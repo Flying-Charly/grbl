@@ -58,7 +58,8 @@ int8_t twi_writeGeneric(uint8_t dev_addr, uint8_t* reg_addr_spec, uint8_t* data,
 // uint8_t data_pointer_LSB
 
 
-// well known transaction is defined by a byte array
+//#define WELL_KNOWN_TRANSACTIONS
+// (supported if compile option set) well known transaction is defined by a byte array
 //  uint8_t flags; // the predefined flag bits 7..3 applying to this transaction
 //  uint8_t sequence_bits; // selects local vs tcb source of data for transaction execution
 //     e.g. 0b10000000 would take device_addr from local table, rest from tcb
@@ -94,7 +95,7 @@ uint8_t twi_fifo_read_pointer;
 #define TWI_FIFO_SIZE 8
 struct tcb* twi_fifo[TWI_FIFO_SIZE];
 
-
+#ifdef WELL_KNOWN_TRANSACTIONS
 /******** well known transactions ***********/
 // masked write to GPIOB, first MCP23017
 uint8_t W_MCP0_PORTB[] = {
@@ -109,6 +110,7 @@ uint8_t W_MCP0_PORTB[] = {
 uint8_t* wellknown_table[8] = {
   W_MCP0_PORTB
 };
+#endif
 
 struct tcb* tcb_in_progress;
 
@@ -141,6 +143,7 @@ void twi_process_queue() {
   start_transaction(transaction);
 }
 
+#ifdef WELL_KNOWN_TRANSACTIONS
 struct {
   uint8_t sequence_map;
   uint8_t sequence_pointer;
@@ -156,11 +159,19 @@ uint8_t* next_tcb_byte () {
   }
   tcb_feeder.sequence_pointer >>= 1;
 }
+#else
+uint8_t* tcb_byte;
+inline uint8_t* next_tcb_byte () {
+  return tcb_byte++;
+}
+#endif
+
 uint8_t reg_addr_spec[3]; // addr width(0..2), MSB, LSB
 void start_transaction(struct tcb* tran) {
   if (tran==NULL) { return; }
   uint8_t flags = tran->flags;
   if ((flags&TCB_COMPL)==TCB_IDLE) { return; } // cancelled
+  #ifdef WELL_KNOWN_TRANSACTIONS
   tcb_feeder.sequence_map = 0;
   tcb_feeder.sequence_pointer = 0x80;
   tcb_feeder.tcb_byte = (uint8_t*)(tran + 1); // start of tcb variant section
@@ -170,6 +181,9 @@ void start_transaction(struct tcb* tran) {
     flags = *tcb_feeder.presets_byte++;
     tcb_feeder.sequence_map = *tcb_feeder.presets_byte++;
   }
+  #else
+  tcb_byte = (uint8_t*)(tran + 1); // start of tcb variant section
+  #endif
   // get device and register addresses
   uint8_t dev_addr = *next_tcb_byte();
   uint8_t ct; // counter for register address bytes
@@ -222,6 +236,7 @@ int8_t queue_TWI(struct tcb* control_block) {
   return 0; // success
 }
 
+/*** TBD:
 int8_t setbit_TWI(struct tcb* control_block, uint8_t bitmask, uint8_t sync_mode) {
   // sync_modes  queue: wait on availability or return regardless
   //             completion: wait on service start, wait on completion,
@@ -233,6 +248,7 @@ int8_t clearbit_TWI(struct tcb* control_block, uint8_t bitmask, uint8_t sync_mod
 //TBD
   return 0; //dummy
 } 
+***/
 
 int8_t twi_readGeneric(uint8_t dev_addr, uint8_t* reg_addr_spec, uint8_t* data, uint8_t length)
 {
