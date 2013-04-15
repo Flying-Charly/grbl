@@ -94,9 +94,9 @@ struct quickread {
   uint8_t reg_spec[2];
 };
 // would have preferred to make these inline functions, but avr-gcc optimizes these better
-extern struct quickread quickreads[];
+extern volatile struct quickread quickreads[];
 #define QUICKREAD_DATA(x) quickreads[(x)].data
-#define QUEUE_QUICKREAD(x) quickreads[(x)].pending++
+#define QUEUE_QUICKREAD(x) queue_quickread(x)
 
 inline void queue_quickread(uint8_t i);
 

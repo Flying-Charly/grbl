@@ -42,8 +42,8 @@ static volatile uint8_t twi_error;
 
 // forward declarations
 void start_transaction(struct tcb* tran);
-int8_t twi_readGeneric(uint8_t dev_addr, uint8_t* reg_addr_spec, uint8_t* data, uint8_t length);
-int8_t twi_writeGeneric(uint8_t dev_addr, uint8_t* reg_addr_spec, uint8_t* data, uint8_t length);
+int8_t twi_readGeneric(uint8_t dev_addr, uint8_t* reg_addr_spec, uint8_t* data, int8_t length);
+int8_t twi_writeGeneric(uint8_t dev_addr, uint8_t* reg_addr_spec, uint8_t* data, int8_t length);
 
 // this fields is fixed , so we give it a label:
 //struct tcb {
@@ -72,7 +72,7 @@ int8_t twi_writeGeneric(uint8_t dev_addr, uint8_t* reg_addr_spec, uint8_t* data,
 //  [...]
 
 
-struct quickread quickreads[] = {
+volatile struct quickread quickreads[] = {
  {0, 0, MCP23017_UNIT0, {1, MCP23017_GPIOA}}
 };
 #define QR_END (struct quickread*)((uint8_t*)quickreads + sizeof(quickreads))
@@ -111,11 +111,11 @@ void twi_process_queue() {
     tcb_in_progress = NULL;
   }
   // quickread entries are highest priority before FIFO queues
-  struct quickread * qr;
+  volatile struct quickread * qr;
   for(qr = quickreads; qr!=QR_END; qr++) {
     if(qr->pending) {
-      twi_readGeneric(qr->device, qr->reg_spec, &qr->data, 1);
-      if(--qr->pending) { qr->pending=1; }
+      twi_readGeneric(qr->device, (uint8_t*)qr->reg_spec, (uint8_t*)(&qr->data), 1);
+      if(--(qr->pending)) { qr->pending=1; }
       return;
     }
   }
@@ -129,6 +129,7 @@ void twi_process_queue() {
     twi_fifo_read_pointer=0; // wrap pointer
   }
   start_transaction(transaction);
+  return;
 }
 
 #ifdef WELL_KNOWN_TRANSACTIONS
@@ -162,7 +163,7 @@ void start_transaction(struct tcb* tran) {
   #ifdef WELL_KNOWN_TRANSACTIONS
   tcb_feeder.sequence_map = 0;
   tcb_feeder.sequence_pointer = 0x80;
-  tcb_feeder.tcb_byte = (uint8_t*)(tran + 1); // start of tcb variant section
+  tcb_feeder.tcb_byte = (uint8_t*)(tran+1); // start of tcb variant section
   if (only8(flags & TCB_RWW)==TCB_WK) {  //read/write/wellknown flags
     // well known transaction
     tcb_feeder.presets_byte = wellknown_table[only8(flags & TCB_WKID)>>TCB_WK_SHIFT];
@@ -170,24 +171,26 @@ void start_transaction(struct tcb* tran) {
     tcb_feeder.sequence_map = *tcb_feeder.presets_byte++;
   }
   #else
-  tcb_byte = (uint8_t*)(tran + 1); // start of tcb variant section
+  tcb_byte = (uint8_t*)(tran+1); // start of tcb variant section
   #endif
   // get device and register addresses
   uint8_t dev_addr = *next_tcb_byte();
-  uint8_t ct; // counter for register address bytes
-  reg_addr_spec[0] = ct = only8(flags&TCB_REG)>>TCB_REG_SHIFT; // number of register address bytes
-  while(ct--) {
-    reg_addr_spec[ct] = *next_tcb_byte();
+  reg_addr_spec[0] = only8(flags&TCB_REG)>>TCB_REG_SHIFT; // number of register address bytes
+  if(reg_addr_spec[0]) {
+    reg_addr_spec[1] = *next_tcb_byte();
+    if(reg_addr_spec[0]==2) {
+      reg_addr_spec[2] = *next_tcb_byte();
+    }
   }
   // get length & data pointer
-  uint8_t length;
+  int8_t length;
   uint8_t* data;
   if(flags&TCB_INPLACE) { // in-place
     length = 1;
     data = next_tcb_byte();
     // if (masked_write) {next_tcb_byte();} would need to skip mask, but this is last field
   } else {
-    length = *next_tcb_byte();
+    length = (int8_t)(*next_tcb_byte());
     uint16_t data_t = (*next_tcb_byte() << 8);
     data_t |= *next_tcb_byte();
     data = (uint8_t*)data_t;
@@ -216,12 +219,22 @@ int8_t queue_TWI(struct tcb* control_block) {
   if(wrt == twi_fifo_read_pointer) {
     return -1; // fail, queue full
   }
+  twi_fifo[twi_fifo_write_pointer]=control_block;
   twi_fifo_write_pointer = wrt;
-  twi_fifo[wrt]=control_block;
   uint8_t newflags = control_block->flags & ~TCB_COMPL;
   newflags |= TCB_QUEUED;
   control_block->flags = newflags;
+  if(twi_state==TWI_READY) {
+    twi_process_queue();
+  }
   return 0; // success
+}
+
+inline void queue_quickread(uint8_t i) {
+  quickreads[i].pending++;
+  if(twi_state==TWI_READY) {
+    twi_process_queue();
+  }
 }
 
 /*** TBD:
@@ -238,7 +251,7 @@ int8_t clearbit_TWI(struct tcb* control_block, uint8_t bitmask, uint8_t sync_mod
 } 
 ***/
 
-int8_t twi_readGeneric(uint8_t dev_addr, uint8_t* reg_addr_spec, uint8_t* data, uint8_t length)
+int8_t twi_readGeneric(uint8_t dev_addr, uint8_t* reg_addr_spec, uint8_t* data, int8_t length)
 {
   if(TWI_READY != twi_state){
     return -1; // busy
@@ -271,7 +284,7 @@ int8_t twi_readGeneric(uint8_t dev_addr, uint8_t* reg_addr_spec, uint8_t* data, 
   return 0;	// success
 }
   
-int8_t twi_writeGeneric(uint8_t dev_addr, uint8_t* reg_addr_spec, uint8_t* data, uint8_t length) {
+int8_t twi_writeGeneric(uint8_t dev_addr, uint8_t* reg_addr_spec, uint8_t* data, int8_t length) {
   if(TWI_READY != twi_state){
     return -1; // busy
   }
@@ -351,7 +364,7 @@ void twi_init(void)
 
 void twi_fifo_init() {
   // clear all pending quickreads
-  struct quickread* qr;
+  volatile struct quickread* qr;
   for(qr = quickreads; qr!=QR_END; qr++) {
     qr->pending=0;
   }

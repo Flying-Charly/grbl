@@ -20,6 +20,8 @@
 #include "config.h"
 #include <avr/interrupt.h>
 
+#include "print.h"
+#include <avr/pgmspace.h>
 
 ////////////////////////////////////////////////////////////////////////////////
 void init_MCP23017_interrupt(); // forward declaration
@@ -27,7 +29,7 @@ void init_MCP23017_interrupt(); // forward declaration
 
 
 void MCP23017_begin(uint8_t i2caddr) {
-  uint8_t init_tcb[4];   // TCB defn for startup operations (write 1 byte)
+  volatile uint8_t init_tcb[4];   // TCB defn for startup operations (write 1 byte)
   twi_init();
   twi_releaseBus();
   // TBD: replace this with tcb operations
@@ -62,85 +64,10 @@ void MCP23017_begin(uint8_t i2caddr) {
   queue_TWI((struct tcb*)init_tcb);
   while(init_tcb[0]&TCB_COMPL) { }; // block until transaction complete
   init_MCP23017_interrupt();
+  QUEUE_QUICKREAD(0);
   #endif
 }
 
-/***
-
-void MCP23017_pinMode(uint8_t p, uint8_t d) {
-  uint8_t localbuf[2];
-
-  // only 16 bits!
-  if (p > 15)
-    return;
-
-  if (p < 8)
-    localbuf[0] = MCP23017_IODIRA;
-  else {
-    localbuf[0] = MCP23017_IODIRB;
-    p -= 8;
-  }
-
-  // read the current IODIR
-  if(twi_writeTo(i2caddr, localbuf, 1, DO_WAIT) != 0) return;
-  if(twi_readFrom(i2caddr, &localbuf[1], 1) != 1) return;
-  // set the pin and direction
-  if (d == INPUT) {
-    localbuf[1] |= 1 << p; 
-  } else {
-    localbuf[1] &= ~(1 << p);
-  }
-
-  // write the new IODIR
-  twi_writeTo(i2caddr, localbuf, 2, DO_WAIT);
-}
-
-uint16_t MCP23017_readGPIOAB() {
-  uint16_t ba = 0;
-  
-  uint8_t localbuf[3] = {MCP23017_GPIOA, 0, 0};
-
-  // read the current GPIO output latches
-  if(twi_writeTo(i2caddr, localbuf, 1, DO_WAIT) != 0) return 0;
-  if(twi_readFrom(i2caddr, &localbuf[1], 2) != 2) return 0;
-
-  ba = localbuf[2];
-  ba <<= 8;
-  ba |= localbuf[1];
-
-  return ba;
-}
-
-void MCP23017_digitalWrite(uint8_t p, uint8_t d) {
-  uint8_t localbuf[2];
-  uint8_t olataddr;
-
-  // only 16 bits!
-  if (p > 15)
-    return;
-
-  if (p < 8) {
-    olataddr = MCP23017_OLATA;
-    localbuf[0] = MCP23017_GPIOA;
-  } else {
-    olataddr = MCP23017_OLATB;
-    localbuf[0] = MCP23017_GPIOB;
-    p -= 8;
-  }
-
-  // read the current GPIO output latches
-  uint8_t status = twi_writeTo(i2caddr, &olataddr, 1, DO_WAIT);
-  if(twi_readFrom(i2caddr, &localbuf[1], 1) != 1) return;
-  // set the pin 
-  if (d != 0) {
-    localbuf[1] |= 1 << p; 
-  } else {
-    localbuf[1] &= ~(1 << p);
-  }
-  // write the new GPIO
-  status = twi_writeTo(i2caddr, localbuf, 2, DO_WAIT);
-}
-***/
 
 
 #ifdef MCP23017_INT_PIN // if defined, it is 0 or 1

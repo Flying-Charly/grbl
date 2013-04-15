@@ -27,7 +27,7 @@
 #include "i2c_tcb.h"
 #include "MCP23017.h"
 
-uint8_t spindle_tcb[5];
+volatile uint8_t spindle_tcb[5];
 
 
 #endif
